@@ -22,4 +22,6 @@ int open(const char * filename, int flag, ...)
 		return res;
 	errno = -res;
 	return -1;
+
+    // "=a"  等号表示只读 ,第一个冒号是指输出
 }

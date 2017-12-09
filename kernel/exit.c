@@ -32,7 +32,7 @@ void release(struct task_struct * p)
 	panic("trying to release non-existent task");
 }
 
-static inline int send_sig(long sig,struct task_struct * p,int priv)
+static int send_sig(long sig,struct task_struct * p,int priv)
 {
 	if (!p || sig<1 || sig>32)
 		return -EINVAL;
@@ -62,21 +62,57 @@ int sys_kill(int pid,int sig)
 	struct task_struct **p = NR_TASKS + task;
 	int err, retval = 0;
 
-	if (!pid) while (--p > &FIRST_TASK) {
-		if (*p && (*p)->pgrp == current->pid) 
-			if (err=send_sig(sig,*p,1))
-				retval = err;
-	} else if (pid>0) while (--p > &FIRST_TASK) {
-		if (*p && (*p)->pid == pid) 
-			if (err=send_sig(sig,*p,0))
-				retval = err;
-	} else if (pid == -1) while (--p > &FIRST_TASK)
-		if (err = send_sig(sig,*p,0))
-			retval = err;
-	else while (--p > &FIRST_TASK)
-		if (*p && (*p)->pgrp == -pid)
-			if (err = send_sig(sig,*p,0))
-				retval = err;
+    if (!pid){
+        while (--p > &FIRST_TASK) {
+            if (*p && (*p)->pgrp == current->pid)
+            {
+                err=send_sig(sig,*p,1);
+                if (err)
+                {
+                    retval = err;
+                }
+            }
+        } 
+    }
+    else if (pid>0)
+    {
+        while (--p > &FIRST_TASK) {
+            if (*p && (*p)->pid == pid)
+            {
+                err=send_sig(sig,*p,0);
+                if (err)
+                {
+                    retval = err;
+                }
+            }
+        } 
+    } 
+    else if (pid == -1) 
+    {
+        while (--p > &FIRST_TASK)
+        {
+            err = send_sig(sig,*p,0);
+            if (err)
+            {
+                retval = err;
+            }
+        }
+    }
+	else 
+    {
+        while (--p > &FIRST_TASK)
+        {
+            if (*p && (*p)->pgrp == -pid)
+            {
+                err = send_sig(sig,*p,0);
+                if (err)
+                {
+                    retval = err;
+                }
+            }
+        }
+    } 
+        
 	return retval;
 }
 
@@ -139,17 +175,38 @@ int sys_exit(int error_code)
 	return do_exit((error_code&0xff)<<8);
 }
 
+
+//成功执行时，返回状态改变的子进程标识。失败返回-1；如果指定WNOHANG标志，同时pid指定的进程状态没有发生变化，将返回0
+//系统调用 waitpid(), 挂起当前进程，直到 pid 指定的子进程退出（终止）或者收到要求终止该进程的信号，或者是需要调用一个信号
+//句柄（信号处理程序 ）。如果pid所指的子进程早已退出(已成所谓的僵死进程)，则本调用将立即返回。子进程使用的所有资源奖释放。
+// pid > 0, 表示等待进程号等于 pid 的子进程
+// pid=0 ,  表示等待进程组号等于当前进程组号的任何子进程
+// pid < -1,表示等待进程组号等于 pid 绝对值的任何子进程
+// pid =-1, 表示任何子进程
+// options = WUNTRACED, 表示如果子进程是停止的，也马上返回 (无须跟踪)
+// options = WNOHANG, 表示如果没有子进程退出或终止就马上返回
+//  如果返回状态指针 *stat_addr 不为空,刚就奖状态信息保存到那里。
+//  @pid, 进程号
+//  @stat_addr 保存状态信息位置的指针
+//  @options, waitpid 选项
+
+
+// main() =>wait()=> waitpid(-1,wait_stat,0) => sys_waitpid()
 int sys_waitpid(pid_t pid,unsigned long * stat_addr, int options)
 {
 	int flag, code;
 	struct task_struct ** p;
 
 	verify_area(stat_addr,4);
+    //printk("1\n");
 repeat:
 	flag=0;
+    //从任务组末端开始遍历，跳过空项，本进程项及非当前进程的子进程项。
+        //printk("2\n");
 	for(p = &LAST_TASK ; p > &FIRST_TASK ; --p) {
 		if (!*p || *p == current)
 			continue;
+        //printk("3 p[%d]cur[%d]\n",(*p)->pid, current->pid);
 		if ((*p)->father != current->pid)
 			continue;
 		if (pid>0) {
@@ -162,6 +219,7 @@ repeat:
 			if ((*p)->pgrp != -pid)
 				continue;
 		}
+        //printk("5\n");
 		switch ((*p)->state) {
 			case TASK_STOPPED:
 				if (!(options & WUNTRACED))
@@ -180,7 +238,9 @@ repeat:
 				flag=1;
 				continue;
 		}
+        //printk("8\n");
 	}
+    //printk("9 f[%d]\n",flag);
 	if (flag) {
 		if (options & WNOHANG)
 			return 0;

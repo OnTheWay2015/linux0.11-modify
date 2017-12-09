@@ -142,6 +142,7 @@ if (__res >= 0) \
 errno = -__res; \
 return -1; \
 }
+// "=a"  等号表示只读 ,第一个冒号是指输出
 
 #define _syscall1(type,name,atype,a) \
 type name(atype a) \
@@ -204,8 +205,8 @@ int execvp(const char * file, char ** argv);
 int execl(const char * pathname, char * arg0, ...);
 int execlp(const char * file, char * arg0, ...);
 int execle(const char * pathname, char * arg0, ...);
-volatile void exit(int status);
-volatile void _exit(int status);
+//volatile void exit(int status);
+//volatile void _exit(int status);
 int fcntl(int fildes, int cmd, ...);
 int fork(void);
 int getpid(void);

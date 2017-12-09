@@ -69,6 +69,7 @@ static unsigned char reply_buffer[MAX_REPLIES];
 #define ST2 (reply_buffer[2])
 #define ST3 (reply_buffer[3])
 
+
 /*
  * This struct defines the different floppy types. Unlike minix
  * linux doesn't have a "search for right type"-type, as the code
@@ -155,7 +156,7 @@ repeat:
 #define copy_buffer(from,to) \
 __asm__("cld ; rep ; movsl" \
 	::"c" (BLOCK_SIZE/4),"S" ((long)(from)),"D" ((long)(to)) \
-	:"cx","di","si")
+	)
 
 static void setup_DMA(void)
 {
@@ -266,7 +267,7 @@ static void rw_interrupt(void)
 	do_fd_request();
 }
 
-inline void setup_rw_floppy(void)
+static void setup_rw_floppy(void)
 {
 	setup_DMA();
 	do_floppy = rw_interrupt;

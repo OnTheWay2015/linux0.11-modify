@@ -30,18 +30,22 @@ begdata:
 .bss
 begbss:
 .text
-
+/* build.c 把 bootsect.s setup.s system.o 合到一个 4扇区(512*4) 的 镜像文件里*/
 SETUPLEN = 4				! nr of setup-sectors
 BOOTSEG  = 0x07c0			! original address of boot-sector
-INITSEG  = 0x9000			! we move boot here - out of the way
-SETUPSEG = 0x9020			! setup starts here
-SYSSEG   = 0x1000			! system loaded at 0x10000 (65536).
+INITSEG  = 0x9000			! we move boot here - out of the way  (bootsect.s)引导扇区的代码装入后，首先会移到该段
+SETUPSEG = 0x9020			! setup starts here  0x20 = 512  镜像第二扇区代码 (setup.s) 
+SYSSEG   = 0x1000			! system loaded at 0x10000 (65536). 
 ENDSEG   = SYSSEG + SYSSIZE		! where to stop loading
 
 ! ROOT_DEV:	0x000 - same type of floppy as boot.
 !		0x301 - first partition on first drive etc
-ROOT_DEV = 0x306
+! .faq 0x306 和 0x301效果一样？ 如果 build.c 里没有设置该值，则使用当前默认值  
+!   0x300表示第一个整硬盘, 0x301表第一个硬盘的第一分区;  0x305表示第二个整硬盘, 0x306表第二个硬盘的第一分区 
+!ROOT_DEV = 0x306
+ROOT_DEV = 0x301
 
+!伪指令 entry 迫使链接程序在生成的执行程序 (a.out) 中包含指定的标识符或标号, 程序从该标号开始执行
 entry start
 start:
 	mov	ax,#BOOTSEG
@@ -79,7 +83,7 @@ load_setup:
 ok_load_setup:
 
 ! Get disk drive parameters, specifically nr of sectors/track
-
+    !call ppp
 	mov	dl,#0x00
 	mov	ax,#0x0800		! AH=8 is get drive parameters
 	int	0x13
@@ -135,7 +139,9 @@ root_defined:
 ! after that (everyting loaded), we jump to
 ! the setup-routine loaded directly after
 ! the bootblock:
-
+    
+    !call ppp 
+    !ret ! ---ok
 	jmpi	0,SETUPSEG
 
 ! This routine loads the system at address 0x10000, making sure
@@ -240,7 +246,6 @@ kill_motor:
 
 sectors:
 	.word 0
-
 msg1:
 	.byte 13,10
 	.ascii "Loading system ..."

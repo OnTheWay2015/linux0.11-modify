@@ -21,7 +21,7 @@
  */
 
 #include <stdio.h>	/* fprintf */
-#include <string.h>
+//#include <string.h>
 #include <stdlib.h>	/* contains exit */
 #include <sys/types.h>	/* unistd.h needs this */
 #include <sys/stat.h>
@@ -29,13 +29,20 @@
 #include <unistd.h>	/* contains read/write */
 #include <fcntl.h>
 
+#define MAJOR(a) (((unsigned)(a))>>8)
+#define MINOR(a) ((a)&0xff)
+
+
+
+
+
 #define MINIX_HEADER 32
 #define GCC_HEADER 1024
 
 #define SYS_SIZE 0x2000
 
 #define DEFAULT_MAJOR_ROOT 3
-#define DEFAULT_MINOR_ROOT 6
+#define DEFAULT_MINOR_ROOT 1
 
 /* max nr of sectors of setup: don't change unless you also change
  * bootsect etc */
@@ -56,25 +63,28 @@ void usage(void)
 
 int main(int argc, char ** argv)
 {
+    int fd = open("./Image.img", O_RDWR|O_CREAT);
 	int i,c,id;
 	char buf[1024];
 	char major_root, minor_root;
-	struct stat sb;
+	//struct stat sb;
 
 	if ((argc != 4) && (argc != 5))
 		usage();
 	if (argc == 5) {
-		if (strcmp(argv[4], "FLOPPY")) {
-			if (stat(argv[4], &sb)) {
-				perror(argv[4]);
-				die("Couldn't stat root device.");
-			}
-			major_root = MAJOR(sb.st_rdev);
-			minor_root = MINOR(sb.st_rdev);
-		} else {
-			major_root = 0;
-			minor_root = 0;
-		}
+		//if (strcmp(argv[4], "FLOPPY")) {
+		//	if (stat(argv[4], &sb)) {
+		//		perror(argv[4]);
+		//		die("Couldn't stat root device.");
+		//	}
+		//	major_root = MAJOR(sb.st_rdev);
+		//	minor_root = MINOR(sb.st_rdev);
+		//} else {
+		//	major_root = 0;
+		//	minor_root = 0;
+		//}
+		major_root = DEFAULT_MAJOR_ROOT;
+		minor_root = DEFAULT_MINOR_ROOT;
 	} else {
 		major_root = DEFAULT_MAJOR_ROOT;
 		minor_root = DEFAULT_MINOR_ROOT;
@@ -109,9 +119,16 @@ int main(int argc, char ** argv)
 		die("Boot block must be exactly 512 bytes");
 	if ((*(unsigned short *)(buf+510)) != 0xAA55)
 		die("Boot block hasn't got boot flag (0xAA55)");
-	buf[508] = (char) minor_root;
+	buf[508] = (char) minor_root; // .faq   会在 boot/bootsect.s使用 
 	buf[509] = (char) major_root;	
-	i=write(1,buf,512);
+	
+    //ssize_t write (int fd,const void * buf,size_t count)
+    // write(1,buff,len) 这个函数中的第一个参数是常数1，
+    // read(0,b,1) 这个函数中的第一个参数是常数0
+    // 0：标准输入　STDIN
+    // １：标准输出 STDOUT
+    // ２：标准错误 STDERR 
+    i=write(fd,buf,512);
 	if (i!=512)
 		die("Write call failed");
 	close (id);
@@ -132,8 +149,9 @@ int main(int argc, char ** argv)
 		die("Non-Minix header of 'setup'");
 	if (((long *) buf)[7] != 0)
 		die("Illegal symbol table in 'setup'");
+
 	for (i=0 ; (c=read(id,buf,sizeof buf))>0 ; i+=c )
-		if (write(1,buf,c)!=c)
+		if (write(fd,buf,c)!=c)
 			die("Write call failed");
 	close (id);
 	if (i > SETUP_SECTS*512)
@@ -146,23 +164,70 @@ int main(int argc, char ** argv)
 		c = SETUP_SECTS*512-i;
 		if (c > sizeof(buf))
 			c = sizeof(buf);
-		if (write(1,buf,c) != c)
+		if (write(fd,buf,c) != c)
 			die("Write call failed");
 		i += c;
 	}
-	
+    printf("tryopen [%s]\n", argv[3] );	
 	if ((id=open(argv[3],O_RDONLY,0))<0)
 		die("Unable to open 'system'");
-	if (read(id,buf,GCC_HEADER) != GCC_HEADER)
+	
+    //system是elf格式, 文件头部不需要写入镜像, 在这里先读出
+    if (read(id,buf,GCC_HEADER) != GCC_HEADER)
 		die("Unable to read header of 'system'");
-	if (((long *) buf)[5] != 0)
-		die("Non-GCC header of 'system'");
-	for (i=0 ; (c=read(id,buf,sizeof buf))>0 ; i+=c )
-		if (write(1,buf,c)!=c)
+    
+
+    //if (((long *) buf)[5] != 0)
+    //	die("Non-GCC header of 'system'");
+    
+    //.faq objcopy -O binary 的操作过程,原理是怎样的？
+    //当在makefile里使用了 objcopy 转换了elf文件时，elf头部是不存在了, 上面读出的数据，还是要写入镜像文件
+    if (write(fd,buf,GCC_HEADER)!=GCC_HEADER)
+    {
+        die("Write call failed");
+    }
+    for (i=0 ; (c=read(id,buf,sizeof buf))>0 ; i+=c )
+    {
+	    //printf( "read i[%d] c[%d]\n", i, c);	
+        if (write(fd,buf,c)!=c)
+        {
 			die("Write call failed");
+        }
+    }
 	close(id);
 	fprintf(stderr,"System is %d bytes.\n",i);
 	if (i > SYS_SIZE*16)
 		die("System is too big");
 	return(0);
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

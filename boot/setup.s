@@ -29,10 +29,9 @@ begbss:
 
 entry start
 start:
-
+    !call ppp  !ok
 ! ok, the read went well so we get current cursor position and save it for
 ! posterity.
-
 	mov	ax,#INITSEG	! this is done in bootsect already, but...
 	mov	ds,ax
 	mov	ah,#0x03	! read cursor pos
@@ -62,11 +61,12 @@ start:
 	mov	[10],bx
 	mov	[12],cx
 
+    !call ppp  !ok
 ! Get hd0 data
 
 	mov	ax,#0x0000
 	mov	ds,ax
-	lds	si,[4*0x41]
+	lds	si,[4*0x41] 
 	mov	ax,#INITSEG
 	mov	es,ax
 	mov	di,#0x0080
@@ -86,12 +86,14 @@ start:
 	rep
 	movsb
 
+    !call ppp  !ok
 ! Check that there IS a hd1 :-)
 
 	mov	ax,#0x01500
 	mov	dl,#0x81
 	int	0x13
 	jc	no_disk1
+    !call ppp !ok 
 	cmp	ah,#3
 	je	is_disk1
 no_disk1:
@@ -103,13 +105,12 @@ no_disk1:
 	rep
 	stosb
 is_disk1:
-
 ! now we want to move to protected mode ...
 
-	cli			! no interrupts allowed !
+	cli			! no interrupts allowed 禁止中断 !
 
 ! first we move the system to it's rightful place
-
+        
 	mov	ax,#0x0000
 	cld			! 'direction'=0, movs moves forward
 do_move:
@@ -120,15 +121,16 @@ do_move:
 	mov	ds,ax		! source segment
 	sub	di,di
 	sub	si,si
-	mov 	cx,#0x8000
+	mov 	cx,#0x8000  !32K
 	rep
-	movsw
-	jmp	do_move
+	movsw  ! 2byte
+    
+    jmp	do_move
 
 ! then we load the segment descriptors
 
 end_move:
-	mov	ax,#SETUPSEG	! right, forgot this at first. didn't work :-)
+    mov	ax,#SETUPSEG	! right, forgot this at first. didn't work :-)
 	mov	ds,ax
 	lidt	idt_48		! load idt with 0,0
 	lgdt	gdt_48		! load gdt with whatever appropriate
@@ -190,7 +192,11 @@ end_move:
 
 	mov	ax,#0x0001	! protected mode (PE) bit
 	lmsw	ax		! This is it!
-	jmpi	0,8		! jmp offset 0 of segment 8 (cs)
+
+    !开启了 GDT 段地址 高 13 位为描述符偏移量, 倒数第三位 T1 是否指向 LDT, 最低两位 RPL 特权等级
+    jmpi	0,8		! jmp offset 0 of segment 8 (cs)  
+
+
 
 ! This routine checks that the keyboard command queue is empty
 ! No timeout is used - if this hangs there is something wrong with
@@ -214,15 +220,13 @@ gdt:
 	.word	0x0000		! base address=0
 	.word	0x9200		! data read/write
 	.word	0x00C0		! granularity=4096, 386
-
 idt_48:
 	.word	0			! idt limit=0
 	.word	0,0			! idt base=0L
 
 gdt_48:
 	.word	0x800		! gdt limit=2048, 256 GDT entries
-	.word	512+gdt,0x9	! gdt base = 0X9xxxx
-	
+	.word	512+gdt,0x9	! gdt base = 0X9xxxx   当前  setup.s 加载在 0x90200 处, 所以 要加载的线性地址是   0x90200 + gdt = .word 512 +gdt, 0x9
 .text
 endtext:
 .data

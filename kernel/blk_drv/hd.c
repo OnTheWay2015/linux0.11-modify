@@ -13,6 +13,52 @@
  *  modified by Drew Eckhardt to check nr of hd's from the CMOS.
  */
 
+/*
+结构 : //boot sector//super block//i-node map//sector map//inode_array//root 数据//
+    superblock --- 通常也叫超级块，关于文件系统的Metadata我们统统记在这里。
+    sector map --- 是一个位图，它用来映射扇区的使用情况，用 1 表示扇区已被使用，0表示未使用。
+    i-node --- 是UNIX世界各种文件系统的核心数据结构之一，我们把它借用过来。每个 i-node对应一个文件，用于存放文件名、文件属性等内容，
+    inode_array --- 就是把所有 i-node都放在这里，形成一个较大的数组。
+    inode map --- 就是用来映射inode_array这个数组使用情况的一个位图，用法跟sector map类似。
+    root --- 数据区类似于FAT12的根目录区，但本质上它也是个普通文件，由于它是所有文件的索引，所以我们把它单独看待。
+    [[文件夹先不管]]
+
+   
+VFS文件系统介绍
+        在Linux文件系统中，为了提高文件访问的效率，都使用了 Cache 机制来提高速度。所谓 Cache 机制就是指文件系统在读写磁盘上的数据之前，
+   都要经过 Cache 系统的缓冲。如果数据在 Cache 里有的话，就直接读取，如果没有，才实际从驱动器读写。
+   第一个块是引导块(Boot block)，系统引导的时候使用。第二个块是超级块(Super block)，记录了文件系统重要的信息，接下来的磁盘块存放 inode 和文件数据。
+        在 VFS 里，每一个文件系统是由其超级块来表示的，这是因为超级块存放了一个文件系统的最重要的信息，通过超级块可以了解这个文件系统的基本构成。
+   从一个文件系统的超级块出发，就可以访问文件系统中任何一个文件。因此，在Linux中文件系统的管理以超级块为单位，从超级块可以取得这个文件系统
+   中任何一个文件的 inode，从文件的 inode 则可以对这个文件进行读写访问。
+4.块设备
+   块设备（blockdevice）
+        --- 是一种具有一定结构的随机存取设备，对这种设备的读写是按块进行的，他使用缓冲区来存放暂时的数据，待条件成熟后，
+            从缓存一次性写入设备或者从设备一次性读到缓冲区。
+   字符设备（Character device）
+        --- 是一个顺序的数据流设备，对这种设备的读写是按字符进行的，而且这些字符是连续地形成一个数据流。他不具备缓冲区，
+            所以对这种设备的读写是实时的。
+
+   扇区(Sectors)：任何块设备硬件对数据处理的基本单位。通常，1个扇区的大小为 512byte。（对设备而言）
+   块 (Blocks)：由Linux制定对内核或文件系统等数据处理的基本单位。通常，1个块由1个或多个扇区组成。（对Linux操作系统而言）
+   段(Segments)：由若干个相邻的块组成。是 Linux 内存管理机制中一个内存页或者内存页的一部分。
+
+ 
+ 
+    文件的操作通过文件描述符属性判断文件的类型依次采用不同的方法，如块设备方法，字符设备方法，管道方法,正规文件等。
+关于文件系统加载和卸载的函数有 sys_umount, sys_mount 和 mount_root 。在超级块中有字段 sb->s_isup 和 sb->s_imount,分别表示该
+超级块中被安装的 i 节点和安装到的 i 节点。显然对于根文件来说，二者是一样的，都是第一个根节点。i 节点中有字段 inode->i_mount,
+表示该节点被安装了文件系统。所以文件系统的安装与卸载就是读取超级块，设置标志位以及释放超级块，清除标志位的过 程。
+对于安装根文件系统来说还要设置进程的根目录为根节点。有了超级块和位图，就可以访问文件系统了。
+在 linux0.11中只支持 minix1.0，关于文件的操作遍布于内核之中。在采用了 vfs 虚拟文件系统之后，各种文件系统可以
+通过这个统一的层被完美的支持。
+
+
+在 linux0.11 中, 被加截的文件系统超级块存在 super_block[]中。该表有 8 项，因此最多加载 8 个文件系统。超级块在 mount_root() 中被初始化，在 read_super() 中会为新加
+载的文件系统在表中设置一个超级块，并在 put_super() 中释放超级块表中指定的超级块项.
+
+ * */
+
 #include <linux/config.h>
 #include <linux/sched.h>
 #include <linux/fs.h>
@@ -25,6 +71,23 @@
 #define MAJOR_NR 3
 #include "blk.h"
 
+void end_request(int uptodate)
+{
+	DEVICE_OFF(CURRENT->dev);
+	if (CURRENT->bh) {
+		CURRENT->bh->b_uptodate = uptodate;
+		unlock_buffer(CURRENT->bh);
+	}
+	if (!uptodate) {
+		printk(DEVICE_NAME " I/O error\n\r");
+		printk("dev %04x, block %d\n\r",CURRENT->dev,
+			CURRENT->bh->b_blocknr);
+	}
+	wake_up(&CURRENT->waiting);
+	wake_up(&wait_for_request);
+	CURRENT->dev = -1;
+	CURRENT = CURRENT->next;
+}
 #define CMOS_READ(addr) ({ \
 outb_p(0x80|addr,0x70); \
 inb_p(0x71); \
@@ -59,10 +122,10 @@ static struct hd_struct {
 } hd[5*MAX_HD]={{0,0},};
 
 #define port_read(port,buf,nr) \
-__asm__("cld;rep;insw"::"d" (port),"D" (buf),"c" (nr):"cx","di")
+__asm__("cld;rep;insw"::"d" (port),"D" (buf),"c" (nr))
 
 #define port_write(port,buf,nr) \
-__asm__("cld;rep;outsw"::"d" (port),"S" (buf),"c" (nr):"cx","si")
+__asm__("cld;rep;outsw"::"d" (port),"S" (buf),"c" (nr))
 
 extern void hd_interrupt(void);
 extern void rd_load(void);
@@ -153,7 +216,7 @@ int sys_setup(void * BIOS)
 	}
 	if (NR_HD)
 		printk("Partition table%s ok.\n\r",(NR_HD>1)?"s":"");
-	rd_load();
+	rd_load();//ram disk
 	mount_root();
 	return (0);
 }
@@ -208,7 +271,7 @@ static int drive_busy(void)
 			break;
 	i = inb(HD_STATUS);
 	i &= BUSY_STAT | READY_STAT | SEEK_STAT;
-	if (i == READY_STAT | SEEK_STAT)
+	if (i == ( READY_STAT | SEEK_STAT) )
 		return(0);
 	printk("HD controller times out\n\r");
 	return(1);
@@ -341,8 +404,9 @@ void do_hd_request(void)
 }
 
 void hd_init(void)
-{
+{//do_hd_request
 	blk_dev[MAJOR_NR].request_fn = DEVICE_REQUEST;
+	//blk_dev[MAJOR_NR].request_fn =do_hd_request;
 	set_intr_gate(0x2E,&hd_interrupt);
 	outb_p(inb_p(0x21)&0xfb,0x21);
 	outb(inb_p(0xA1)&0xbf,0xA1);

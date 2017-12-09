@@ -94,7 +94,7 @@ struct bucket_desc *free_bucket_desc = (struct bucket_desc *) 0;
 /*
  * This routine initializes a bucket description page.
  */
-static inline void init_bucket_desc()
+static void init_bucket_desc()
 {
 	struct bucket_desc *bdesc, *first;
 	int	i;
@@ -153,8 +153,13 @@ void *malloc(unsigned int len)
 		free_bucket_desc = bdesc->next;
 		bdesc->refcnt = 0;
 		bdesc->bucket_size = bdir->size;
-		bdesc->page = bdesc->freeptr = (void *) cp = get_free_page();
-		if (!cp)
+		
+        cp = (char*) get_free_page();
+		bdesc->freeptr = (void *) cp;
+		bdesc->page = bdesc->freeptr ;
+		//bdesc->page = bdesc->freeptr = (void *) cp = get_free_page();
+		
+        if (!cp)
 			panic("Out of memory in kernel malloc()");
 		/* Set up the chain of free objects */
 		for (i=PAGE_SIZE/bdir->size; i > 1; i--) {
@@ -188,6 +193,7 @@ void free_s(void *obj, int size)
 	/* Calculate what page this object lives in */
 	page = (void *)  ((unsigned long) obj & 0xfffff000);
 	/* Now search the buckets looking for that page */
+	prev = 0;
 	for (bdir = bucket_dir; bdir->size; bdir++) {
 		prev = 0;
 		/* If size is zero then this conditional is always false */

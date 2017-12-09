@@ -6,25 +6,35 @@
 # unless it's something special (ie not a .c file).
 #
 
-AR	=gar
-AS	=gas
-LD	=gld
-LDFLAGS	=-s -x
+AR	=ar
+
+#AS	=gas
+#LD	=gld
+AS	=as --32
+LD	=ld -m elf_i386 
+
+#LDFLAGS	=-s -x
+LDFLAGS	= -x 
 CC	=gcc
-CFLAGS	=-Wall -O -fstrength-reduce -fomit-frame-pointer -fcombine-regs \
-	-finline-functions -mstring-insns -nostdinc -I../include
+#CFLAGS	=-Wall -O -fstrength-reduce -fomit-frame-pointer -fcombine-regs \
+#	-finline-functions -mstring-insns -nostdinc -I../include
+CFLAGS	= -m32 -Wall -O  -fstrength-reduce -fomit-frame-pointer \
+	-finline-functions -nostdinc  -fno-builtin -I../include
 CPP	=gcc -E -nostdinc -I../include
 
 .c.s:
 	$(CC) $(CFLAGS) \
 	-S -o $*.s $<
 .s.o:
-	$(AS) -c -o $*.o $<
+	#$(AS) -c -o $*.o $<
+	$(AS) -o $*.o $<
 .c.o:
 	$(CC) $(CFLAGS) \
 	-c -o $*.o $<
 
-OBJS  = sched.o system_call.o traps.o asm.o fork.o \
+OBJS  =\
+	segment.o \
+	sched.o system_call.o traps.o asm.o fork.o \
 	panic.o printk.o vsprintf.o sys.o exit.o \
 	signal.o mktime.o
 
@@ -48,6 +58,8 @@ dep:
 	(cd blk_drv; make dep)
 
 ### Dependencies:
+segment.s segment.o : segment.c ../include/asm/segment.h
+
 exit.s exit.o : exit.c ../include/errno.h ../include/signal.h \
   ../include/sys/types.h ../include/sys/wait.h ../include/linux/sched.h \
   ../include/linux/head.h ../include/linux/fs.h ../include/linux/mm.h \

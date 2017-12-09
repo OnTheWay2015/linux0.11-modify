@@ -10,7 +10,7 @@
  * to mainly kill the offending process (probably by giving it a signal,
  * but possibly by killing it outright if necessary).
  */
-#include <string.h>
+//#include <string.h>
 
 #include <linux/head.h>
 #include <linux/sched.h>
@@ -65,23 +65,34 @@ static void die(char * str,long esp_ptr,long nr)
 	long * esp = (long *) esp_ptr;
 	int i;
 
-	printk("%s: %04x\n\r",str,nr&0xffff);
-	printk("EIP:\t%04x:%p\nEFLAGS:\t%p\nESP:\t%04x:%p\n",
+	//printk("\n");
+	//printk("1----\n");
+	printk("%s: 0x%04x\n\r",str,nr&0xffff);
+	//printk("2----\n");
+	printk("EIP:\t0x%04x:%p\nEFLAGS:\t%p\nESP:\t0x%04x:%p\n",
 		esp[1],esp[0],esp[2],esp[4],esp[3]);
-	printk("fs: %04x\n",_fs());
+	//printk("3----\n");
+	printk("fs: 0x%04x\n",_fs());
+	//printk("4----\n");
 	printk("base: %p, limit: %p\n",get_base(current->ldt[1]),get_limit(0x17));
+	//printk("5----\n");
 	if (esp[4] == 0x17) {
 		printk("Stack: ");
 		for (i=0;i<4;i++)
 			printk("%p ",get_seg_long(0x17,i+(long *)esp[3]));
 		printk("\n");
 	}
+	//printk("6----\n");
 	str(i);
+	//printk("7----\n");
 	printk("Pid: %d, process nr: %d\n\r",current->pid,0xffff & i);
+	//printk("8----\n");
 	for(i=0;i<10;i++)
-		printk("%02x ",0xff & get_seg_byte(esp[1],(i+(char *)esp[0])));
-	printk("\n\r");
+		printk("0x%02x ",0xff & get_seg_byte(esp[1],(i+(char *)esp[0])));
+	//printk("9----\n");
+	//printk("\n\r");
 	do_exit(11);		/* play segment exception */
+	//printk("10----\n");
 }
 
 void do_double_fault(long esp, long error_code)
@@ -105,7 +116,7 @@ void do_int3(long * esp, long error_code,
 		long edx,long ecx,long ebx,long eax)
 {
 	int tr;
-
+    //printk("do_int3!! \n");
 	__asm__("str %%ax":"=a" (tr):"0" (0));
 	printk("eax\t\tebx\t\tecx\t\tedx\n\r%8x\t%8x\t%8x\t%8x\n\r",
 		eax,ebx,ecx,edx);
@@ -138,6 +149,7 @@ void do_bounds(long esp, long error_code)
 
 void do_invalid_op(long esp, long error_code)
 {
+	//printk("do_invalid_op!\n");
 	die("invalid operand",esp,error_code);
 }
 
@@ -153,6 +165,7 @@ void do_coprocessor_segment_overrun(long esp, long error_code)
 
 void do_invalid_TSS(long esp,long error_code)
 {
+	//printk("do_invalid_TSS!\n");
 	die("invalid TSS",esp,error_code);
 }
 
@@ -178,31 +191,45 @@ void do_reserved(long esp, long error_code)
 	die("reserved (15,17-47) error",esp,error_code);
 }
 
+
+/*
+ * 中断程序初始化子程序，设置中断调用门，set_trap_gate()和set_system_gate()都使用了中断描述
+ * *符表IDT中的陷阱门(Trap Gate),前者设置的特权级为0，后者为3。两者都是嵌入汇编宏程序。
+ * */
 void trap_init(void)
 {
-	int i;
+    int i;
+    /*设置各个中断向量值，除操作出错*/
+    set_trap_gate(0,&divide_error);
+    set_trap_gate(1,&debug);
+    set_trap_gate(2,&nmi);
+    /*中断3-5可以被所有程序执行*/
+    set_system_gate(3,&int3);
+    set_system_gate(4,&overflow);
+    set_system_gate(5,&bounds);
 
-	set_trap_gate(0,&divide_error);
-	set_trap_gate(1,&debug);
-	set_trap_gate(2,&nmi);
-	set_system_gate(3,&int3);	/* int3-5 can be called from all */
-	set_system_gate(4,&overflow);
-	set_system_gate(5,&bounds);
-	set_trap_gate(6,&invalid_op);
-	set_trap_gate(7,&device_not_available);
-	set_trap_gate(8,&double_fault);
-	set_trap_gate(9,&coprocessor_segment_overrun);
-	set_trap_gate(10,&invalid_TSS);
-	set_trap_gate(11,&segment_not_present);
-	set_trap_gate(12,&stack_segment);
-	set_trap_gate(13,&general_protection);
-	set_trap_gate(14,&page_fault);
-	set_trap_gate(15,&reserved);
-	set_trap_gate(16,&coprocessor_error);
-	for (i=17;i<48;i++)
-		set_trap_gate(i,&reserved);
-	set_trap_gate(45,&irq13);
-	outb_p(inb_p(0x21)&0xfb,0x21);
-	outb(inb_p(0xA1)&0xdf,0xA1);
-	set_trap_gate(39,&parallel_interrupt);
+    set_trap_gate(6,&invalid_op);
+    set_trap_gate(7,&device_not_available);
+    set_trap_gate(8,&double_fault);
+    set_trap_gate(9,&coprocessor_segment_overrun);
+    set_trap_gate(10,&invalid_TSS);
+    set_trap_gate(11,&segment_not_present);
+    set_trap_gate(12,&stack_segment);
+    set_trap_gate(13,&general_protection);
+    set_trap_gate(14,&page_fault);
+    set_trap_gate(15,&reserved);
+    set_trap_gate(16,&coprocessor_error);
+    /*把int17-47的中断先设置为reserverd,后面初始化时会重新设置自己的中断*/
+    for (i=17;i<48;i++)
+        set_trap_gate(i,&reserved);
+    /*设置协处理器中断45，允许产生中断请求，设置并行口中断描述符*/
+    set_trap_gate(45,&irq13);
+    outb_p(inb_p(0x21)&0xfb,0x21);
+    /*允许8259A主芯片的IRQ2中断请求*/
+    outb(inb_p(0xA1)&0xdf,0xA1);
+    /*允许8259A主芯片的IRQ3中断请求*/
+    set_trap_gate(39,&parallel_interrupt);
+    /*设置并行口1的中断0x27陷阱门描述符*/ 
 }
+
+

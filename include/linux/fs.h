@@ -67,7 +67,7 @@ typedef char buffer_block[BLOCK_SIZE];
 
 struct buffer_head {
 	char * b_data;			/* pointer to data block (1024 bytes) */
-	unsigned long b_blocknr;	/* block number */
+	unsigned long b_blocknr;	/* block number  块号 */
 	unsigned short b_dev;		/* device (0 = free) */
 	unsigned char b_uptodate;
 	unsigned char b_dirt;		/* 0-clean,1-dirty */
@@ -121,27 +121,67 @@ struct file {
 	off_t f_pos;
 };
 
+
+//超级块代表了整个文件系统，超级块是文件系统的控制块，有整个文件系统信息，
+//一个文件系统所有的inode都要连接到超级块上，可以说，一个超级块就代表了一个文件系统。
+//
+//数据通常以文件的形式存储在设备上，因此文件系统的基本功能就是以某种格式存取/控制文件。
+//0.11 版的内核中采用了 minix1.0 版的文件系统。在最新的 2.6 版内核中，借助于 VFS，系统支持 50 多种文件系统。
+//首先介绍一下 minix 文件系统
+//      minix 文件系统和标准 unix 文件系统基本相同。它由 6 个部分组成，分别是：引导块，超级块，i 节点位图， 逻辑块位图， i 节点，和数据区。
+//  如果存放文件系统的设备不是引导设备，那么引导块可以为空。PC 机的块设备通常 以 512 字节为一个扇区，而文件系统则以盘块为单位使用之。
+//  minix 中 1 个盘块等于 2 个扇区大小。 从引导块为第 0 个盘块开始计算。逻辑块可以为 2^n 个 盘块，minix 中逻辑块大小等于盘块。
+//  所以 盘块 = 逻辑块 = 缓冲块 = 1024 字节。 超级块存放文件系统的整体信息。 i 节点位图描述了 i 节点的使用情况。
+//      文件通常将控制信息和数据分开存放，i 节点就是存放文件的控制信息的，通常称之为 inode。 逻辑块位图则描述了逻辑块的使用情况。
+//  linux 中的文件范围很广泛，不仅仅指普通文件。用 ls -l 命令可以发现显示的信息的最左边字符可以为 "-","d","s","p","b","c",
+//  分别表示正规文件，目录文件，符号连接，命名管道，块设备，字符设备文件。紧跟在其后的 9 位字符可以为 r,w,x,s,S 等，
+//  描述了文件的访问权限。 后面的信息有文件的用户名，组名，文件大小，修改日期等，这些信息当然是放在 inode 中的。
+//  文件名除外。那么文件系统是如何被加载的呢？在系统启动过程中，具体是在任务 1 的 init() 函数中，通过 setup 系 统调用加载的，
+//  该函数调用 mount_root() 函数读取根文件系统的超级块和根 inode 节点。
+
 struct super_block {
-	unsigned short s_ninodes;
-	unsigned short s_nzones;
-	unsigned short s_imap_blocks;
-	unsigned short s_zmap_blocks;
-	unsigned short s_firstdatazone;
-	unsigned short s_log_zone_size;
-	unsigned long s_max_size;
-	unsigned short s_magic;
-/* These are only in memory */
-	struct buffer_head * s_imap[8];
-	struct buffer_head * s_zmap[8];
-	unsigned short s_dev;
-	struct m_inode * s_isup;
-	struct m_inode * s_imount;
-	unsigned long s_time;
-	struct task_struct * s_wait;
-	unsigned char s_lock;
-	unsigned char s_rd_only;
-	unsigned char s_dirt;
+    unsigned short s_ninodes; //节点数
+    unsigned short s_nzones; //逻辑块数
+    unsigned short s_imap_blocks; //i 节点位图所占的数据块数
+    unsigned short s_zmap_blocks; //逻辑块位图所占用的数据块数
+    unsigned short s_firstdatazone; //第一个数据逻辑块号
+    unsigned short s_log_zone_size; //log2(数据块数/逻辑块)
+    unsigned long s_max_size; //文件的最大长度
+    unsigned short s_magic ;   //文件系统魔数
+//以下的字段仅出现在内存中
+    struct buffer_head* s_imap[8];// i 节点位图在缓冲区中的指针
+    struct buffer_head* s_zmap[8];//逻辑块位图在缓冲区中的指针
+    unsigned short s_dev;//超级块所在的设备号
+    struct m_inode *s_isup;//被安装的文件系统的根节点
+    struct m_inode *s_imount; //被安装到的 i 节点
+    unsigned long s_time; //修改时间
+    struct task_struct *s_wait; //等待该超级块的进程
+    unsigned char s_lock; //被锁定标志
+    unsigned char s_rd_only; //只读标志
+    unsigned char s_dirt; //已修改标志
 };
+
+//struct super_block {
+//	unsigned short s_ninodes;
+//	unsigned short s_nzones;
+//	unsigned short s_imap_blocks;
+//	unsigned short s_zmap_blocks;
+//	unsigned short s_firstdatazone;
+//	unsigned short s_log_zone_size;
+//	unsigned long s_max_size;
+//	unsigned short s_magic;
+///* These are only in memory */
+//	struct buffer_head * s_imap[8];
+//	struct buffer_head * s_zmap[8];
+//	unsigned short s_dev;
+//	struct m_inode * s_isup;
+//	struct m_inode * s_imount;
+//	unsigned long s_time;
+//	struct task_struct * s_wait;
+//	unsigned char s_lock;
+//	unsigned char s_rd_only;
+//	unsigned char s_dirt;
+//};
 
 struct d_super_block {
 	unsigned short s_ninodes;

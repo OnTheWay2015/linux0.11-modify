@@ -58,12 +58,16 @@ static unsigned long * create_tables(char * p,int argc,int envc)
 	put_fs_long((unsigned long)argc,--sp);
 	while (argc-->0) {
 		put_fs_long((unsigned long) p,argv++);
-		while (get_fs_byte(p++)) /* nothing */ ;
+		while (get_fs_byte(p++)) /* nothing */
+        {
+        }
 	}
 	put_fs_long(0,argv);
 	while (envc-->0) {
 		put_fs_long((unsigned long) p,envp++);
-		while (get_fs_byte(p++)) /* nothing */ ;
+		while (get_fs_byte(p++)) /* nothing */ 
+        {
+        }
 	}
 	put_fs_long(0,envp);
 	return sp;
@@ -76,10 +80,14 @@ static int count(char ** argv)
 {
 	int i=0;
 	char ** tmp;
-
-	if (tmp = argv)
+    tmp = argv;
+	if (tmp)
+    {
 		while (get_fs_long((unsigned long *) (tmp++)))
+        {
 			i++;
+        }
+    }
 
 	return i;
 }
@@ -135,9 +143,10 @@ static unsigned long copy_strings(int argc,char ** argv,unsigned long *page,
 				offset = p % PAGE_SIZE;
 				if (from_kmem==2)
 					set_fs(old_fs);
+				//page[p/PAGE_SIZE] = (unsigned long *) get_free_page();
+				page[p/PAGE_SIZE] = get_free_page();
 				if (!(pag = (char *) page[p/PAGE_SIZE]) &&
-				    !(pag = (char *) page[p/PAGE_SIZE] =
-				      (unsigned long *) get_free_page())) 
+				    !(pag = (char *) page[p/PAGE_SIZE])) 
 					return 0;
 				if (from_kmem==2)
 					set_fs(new_fs);
@@ -236,7 +245,8 @@ restart_interp:
 		brelse(bh);
 		iput(inode);
 		buf[1022] = '\0';
-		if (cp = strchr(buf, '\n')) {
+        cp = strchr(buf, '\n');
+		if (cp) {
 			*cp = '\0';
 			for (cp = buf; (*cp == ' ') || (*cp == '\t'); cp++);
 		}

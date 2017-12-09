@@ -12,6 +12,7 @@
 #include <linux/kernel.h>
 #include <asm/system.h>
 
+
 #include "blk.h"
 
 /*
@@ -39,7 +40,7 @@ struct blk_dev_struct blk_dev[NR_BLK_DEV] = {
 	{ NULL, NULL }		/* dev lp */
 };
 
-static inline void lock_buffer(struct buffer_head * bh)
+void lock_buffer(struct buffer_head * bh)
 {
 	cli();
 	while (bh->b_lock)
@@ -48,13 +49,15 @@ static inline void lock_buffer(struct buffer_head * bh)
 	sti();
 }
 
-static inline void unlock_buffer(struct buffer_head * bh)
+void unlock_buffer(struct buffer_head * bh)
 {
 	if (!bh->b_lock)
 		printk("ll_rw_block.c: buffer not locked\n\r");
 	bh->b_lock = 0;
 	wake_up(&bh->b_wait);
 }
+
+
 
 /*
  * add-request adds a request to the linked list.
@@ -76,10 +79,13 @@ static void add_request(struct blk_dev_struct * dev, struct request * req)
 		return;
 	}
 	for ( ; tmp->next ; tmp=tmp->next)
-		if ((IN_ORDER(tmp,req) ||
-		    !IN_ORDER(tmp,tmp->next)) &&
-		    IN_ORDER(req,tmp->next))
+    {
+		if ( (IN_ORDER(tmp,req) || !IN_ORDER(tmp,tmp->next)) &&
+		    IN_ORDER(req,tmp->next) )
+        {
 			break;
+        }
+    }
 	req->next=tmp->next;
 	tmp->next=req;
 	sti();
@@ -92,13 +98,20 @@ static void make_request(int major,int rw, struct buffer_head * bh)
 
 /* WRITEA/READA is special case - it is not really needed, so if the */
 /* buffer is locked, we just forget about it, else it's a normal read */
-	if (rw_ahead = (rw == READA || rw == WRITEA)) {
+	rw_ahead = (rw == READA || rw == WRITEA);
+    if (rw_ahead) {
 		if (bh->b_lock)
+        {
 			return;
+        }
 		if (rw == READA)
+        {
 			rw = READ;
+        }
 		else
+        {
 			rw = WRITE;
+        }
 	}
 	if (rw!=READ && rw!=WRITE)
 		panic("Bad block dev command, must be R/W/RA/WA");
@@ -139,15 +152,26 @@ repeat:
 	req->waiting = NULL;
 	req->bh = bh;
 	req->next = NULL;
-	add_request(major+blk_dev,req);
+
+	add_request( major + blk_dev, req );//和 blk_dev + major 一样 
 }
+
+
 
 void ll_rw_block(int rw, struct buffer_head * bh)
 {
-	unsigned int major;
+	unsigned int major; //主设备号  硬盘是 3
+    major = MAJOR(bh->b_dev);
+    //printk( "ll_rw_block b_dev[%u] major[%u] NR_BLK_DEV[%u] nm[%u]\n\r", bh->b_dev, major, NR_BLK_DEV, bh->b_blocknr);
 
-	if ((major=MAJOR(bh->b_dev)) >= NR_BLK_DEV ||
-	!(blk_dev[major].request_fn)) {
+	if (major >= NR_BLK_DEV )
+    {//主设备号不存在
+		printk("123err!\n\r");
+        return; 
+    }
+
+	if (!(blk_dev[major].request_fn)) {
+        //该设备的请求操作函数不存在
 		printk("Trying to read nonexistent block-device\n\r");
 		return;
 	}

@@ -20,18 +20,23 @@
 
 #include <signal.h>
 
+//取信号 nr 在信号位图中对应位的二进制数值。信号编号 1-32。 
+// 比如信号 5 的位图数值 = 1<<(5-1) = 16 = 00010000b。
 #define _S(nr) (1<<((nr)-1))
+
+//除了 SIGKILL 和 SIGSTOP 信号以外其它都是可阻塞的(…10111111111011111111b)。
 #define _BLOCKABLE (~(_S(SIGKILL) | _S(SIGSTOP)))
 
+// 显示任务号 nr 的进程号、进程状态和内核堆栈空闲字节数（大约）
 void show_task(int nr,struct task_struct * p)
 {
 	int i,j = 4096-sizeof(struct task_struct);
 
-	printk("%d: pid=%d, state=%d, ",nr,p->pid,p->state);
+	//printk("%d: pid=%d, state=%d, ",nr,p->pid,p->state);
 	i=0;
-	while (i<j && !((char *)(p+1))[i])
+	while (i<j && !((char *)(p+1))[i])  // 检测指定任务数据结构以后等于 0 的字节数。
 		i++;
-	printk("%d (of %d) chars free in kernel stack\n\r",i,j);
+	//printk("%d (of %d) chars free in kernel stack\n\r",i,j);
 }
 
 void show_stat(void)
@@ -43,6 +48,8 @@ void show_stat(void)
 			show_task(i,task[i]);
 }
 
+
+// 定义每个时间片的滴答数
 #define LATCH (1193180/HZ)
 
 extern void mem_use(void);
@@ -50,6 +57,8 @@ extern void mem_use(void);
 extern int timer_interrupt(void);
 extern int system_call(void);
 
+
+//linux/mm.h :: #define PAGE_SIZE 4096
 union task_union {
 	struct task_struct task;
 	char stack[PAGE_SIZE];
@@ -101,26 +110,46 @@ void math_state_restore()
  * tasks can run. It can not be killed, and it cannot sleep. The 'state'
  * information in task[0] is never used.
  */
+
+/*
+ 任务调度是，从最后一个任务到第一个任务遍历，如果当前任务号对应的任务存在，则处理信号。
+ 先处理alarm信号，如果alarm信号存在，则在signal中置位，清楚alarm值，在这里，alarm值应该是从开机到定时器触发的滴答数，
+ 而jiffies是从开机到现在的滴答数，这样alarm < jiffies 表示的就是已经超过了定时器的触发时间。
+如果还有其他未被屏蔽的信号存在，并且任务的状态为可中断睡眠状态，将进程设为就绪状态，等待调度执行。
+
+ * */
 void schedule(void)
 {
+    //printk("schedule act!!\n");
 	int i,next,c;
 	struct task_struct ** p;
 
 /* check alarm, wake up any interruptible tasks that have got a signal */
 
 	for(p = &LAST_TASK ; p > &FIRST_TASK ; --p)
+    {
 		if (*p) {
+            //printk("schedule for task [%p]!!\n", *p);
 			if ((*p)->alarm && (*p)->alarm < jiffies) {
 					(*p)->signal |= (1<<(SIGALRM-1));
 					(*p)->alarm = 0;
 				}
+            //printk("schedule for task [%p] pid[%ld] state[%ld] signal[%ld] blocked[%ld]  \n", *p,(*p)->pid, (*p)->state, (*p)->signal, (*p)->blocked );
 			if (((*p)->signal & ~(_BLOCKABLE & (*p)->blocked)) &&
-			(*p)->state==TASK_INTERRUPTIBLE)
+		    	(*p)->state==TASK_INTERRUPTIBLE)
+            {
+                //printk("schedule for task [%p]  state act TASK_RUNNING!\n", *p);
 				(*p)->state=TASK_RUNNING;
+            }
 		}
+    }
 
 /* this is the scheduler proper: */
-
+/*
+ 下面的代码是任务的调度代码，主要是查询一个状态为就绪的，并且时间片最大的，且>0的任务执行，
+ 如果所有的任务时间片都为空了，重新分配所有任务的时间片，
+ 这里counter = counter /2 + priority，此时就绪状态的任务counter已经为0，但睡眠状态的任务不一定为0，所有重新分配时间片就是按照权值大小重新赋值：
+ * */
 	while (1) {
 		c = -1;
 		next = 0;
@@ -130,14 +159,24 @@ void schedule(void)
 			if (!*--p)
 				continue;
 			if ((*p)->state == TASK_RUNNING && (*p)->counter > c)
+            {
 				c = (*p)->counter, next = i;
+            }
 		}
 		if (c) break;
 		for(p = &LAST_TASK ; p > &FIRST_TASK ; --p)
+        {
 			if (*p)
-				(*p)->counter = ((*p)->counter >> 1) +
-						(*p)->priority;
+            {
+				(*p)->counter = ((*p)->counter >> 1) + (*p)->priority;
+            }
+        
+        }
 	}
+            
+             //printk("schedule next while task [%p] pid[%ld] counter[%ld] state[%ld] signal[%ld] blocked[%ld]  \n", *p,(*p)->pid, (*p)->counter, (*p)->state, (*p)->signal, (*p)->blocked );
+                //printk("schedule while reset counter  task [%p] pid[%ld] counter[%ld] state[%ld] signal[%ld] blocked[%ld]  \n", *p,(*p)->pid, (*p)->counter, (*p)->state, (*p)->signal, (*p)->blocked );
+    //printk("schedule act [%d]!!\n", next);
 	switch_to(next);
 }
 
@@ -382,31 +421,48 @@ int sys_nice(long increment)
 	return 0;
 }
 
+
+
+/*
+typedef struct desc_struct {
+	unsigned long a,b;
+} desc_table[256];
+*/
 void sched_init(void)
 {
 	int i;
 	struct desc_struct * p;
 
-	if (sizeof(struct sigaction) != 16)
+	if (sizeof(struct sigaction) != 16) // .faq 为什么要检查
 		panic("Struct sigaction MUST be 16 bytes");
-	set_tss_desc(gdt+FIRST_TSS_ENTRY,&(init_task.task.tss));
+	
+//#define FIRST_TSS_ENTRY 4 
+//#define FIRST_LDT_ENTRY (FIRST_TSS_ENTRY+1)
+    set_tss_desc(gdt+FIRST_TSS_ENTRY,&(init_task.task.tss));
 	set_ldt_desc(gdt+FIRST_LDT_ENTRY,&(init_task.task.ldt));
-	p = gdt+2+FIRST_TSS_ENTRY;
-	for(i=1;i<NR_TASKS;i++) {
+
+    //#define NR_TASKS 64
+	p = gdt+2+FIRST_TSS_ENTRY;// 跳过上面两个段描述符
+	for(i=1;i<NR_TASKS;i++) { // i=1,跳过第一个； 第一个为第一个进程使用
 		task[i] = NULL;
-		p->a=p->b=0;
+		p->a=p->b=0; 
 		p++;
-		p->a=p->b=0;
+		p->a=p->b=0;//每个进程占用两个描述符
 		p++;
 	}
+
+
 /* Clear NT, so that we won't have troubles with that later on */
 	__asm__("pushfl ; andl $0xffffbfff,(%esp) ; popfl");
 	ltr(0);
 	lldt(0);
-	outb_p(0x36,0x43);		/* binary, mode 3, LSB/MSB, ch 0 */
+   //设置时钟中断. 初始化 8253定时器, 通道 0, 工作模式 3, 二进制计数方式,  
+    outb_p(0x36,0x43);		/* binary, mode 3, LSB/MSB, ch 0 */
 	outb_p(LATCH & 0xff , 0x40);	/* LSB */
 	outb(LATCH >> 8 , 0x40);	/* MSB */
 	set_intr_gate(0x20,&timer_interrupt);
 	outb(inb_p(0x21)&~0x01,0x21);
-	set_system_gate(0x80,&system_call);
+	
+    //设置系统中断 0x80   system_call.s
+    set_system_gate(0x80,&system_call);
 }

@@ -4,7 +4,7 @@
  *  (C) 1991  Linus Torvalds
  */
 
-#include <string.h>
+//#include <string.h>
 #include <sys/stat.h>
 
 #include <linux/sched.h>
@@ -17,7 +17,7 @@ struct m_inode inode_table[NR_INODE]={{0,},};
 static void read_inode(struct m_inode * inode);
 static void write_inode(struct m_inode * inode);
 
-static inline void wait_on_inode(struct m_inode * inode)
+static void wait_on_inode(struct m_inode * inode)
 {
 	cli();
 	while (inode->i_lock)
@@ -25,7 +25,7 @@ static inline void wait_on_inode(struct m_inode * inode)
 	sti();
 }
 
-static inline void lock_inode(struct m_inode * inode)
+static void lock_inode(struct m_inode * inode)
 {
 	cli();
 	while (inode->i_lock)
@@ -34,7 +34,7 @@ static inline void lock_inode(struct m_inode * inode)
 	sti();
 }
 
-static inline void unlock_inode(struct m_inode * inode)
+static void unlock_inode(struct m_inode * inode)
 {
 	inode->i_lock=0;
 	wake_up(&inode->i_wait);
@@ -80,59 +80,92 @@ static int _bmap(struct m_inode * inode,int block,int create)
 		panic("_bmap: block>big");
 	if (block<7) {
 		if (create && !inode->i_zone[block])
-			if (inode->i_zone[block]=new_block(inode->i_dev)) {
+        {
+            inode->i_zone[block]=new_block(inode->i_dev);
+			if (inode->i_zone[block]) {
 				inode->i_ctime=CURRENT_TIME;
 				inode->i_dirt=1;
 			}
+        }
 		return inode->i_zone[block];
 	}
 	block -= 7;
 	if (block<512) {
 		if (create && !inode->i_zone[7])
-			if (inode->i_zone[7]=new_block(inode->i_dev)) {
+        {
+            inode->i_zone[7]=new_block(inode->i_dev);
+            if (inode->i_zone[7]) {
 				inode->i_dirt=1;
 				inode->i_ctime=CURRENT_TIME;
 			}
+        }
 		if (!inode->i_zone[7])
+        {
 			return 0;
-		if (!(bh = bread(inode->i_dev,inode->i_zone[7])))
+        }
+        bh = bread(inode->i_dev,inode->i_zone[7]);
+        if (!bh)
+        {
 			return 0;
+        }
 		i = ((unsigned short *) (bh->b_data))[block];
 		if (create && !i)
-			if (i=new_block(inode->i_dev)) {
+        {
+            i=new_block(inode->i_dev);
+			if (i) {
 				((unsigned short *) (bh->b_data))[block]=i;
 				bh->b_dirt=1;
 			}
+        }
 		brelse(bh);
 		return i;
 	}
 	block -= 512;
 	if (create && !inode->i_zone[8])
-		if (inode->i_zone[8]=new_block(inode->i_dev)) {
-			inode->i_dirt=1;
+    {
+        inode->i_zone[8]=new_block(inode->i_dev);
+        if (inode->i_zone[8]) {
+            inode->i_dirt=1;
 			inode->i_ctime=CURRENT_TIME;
 		}
+    }
 	if (!inode->i_zone[8])
+    {
 		return 0;
-	if (!(bh=bread(inode->i_dev,inode->i_zone[8])))
+    }
+    bh=bread(inode->i_dev,inode->i_zone[8]);
+	if (!bh)
+    {
 		return 0;
+    }
 	i = ((unsigned short *)bh->b_data)[block>>9];
 	if (create && !i)
-		if (i=new_block(inode->i_dev)) {
+    {
+        i=new_block(inode->i_dev);
+		if (i) {
 			((unsigned short *) (bh->b_data))[block>>9]=i;
 			bh->b_dirt=1;
 		}
+    }
 	brelse(bh);
 	if (!i)
+    {
 		return 0;
-	if (!(bh=bread(inode->i_dev,i)))
+    }
+    bh=bread(inode->i_dev,i);
+	if (!bh)
+    {
 		return 0;
+    }
 	i = ((unsigned short *)bh->b_data)[block&511];
 	if (create && !i)
-		if (i=new_block(inode->i_dev)) {
+    {
+        i=new_block(inode->i_dev);
+        if (i) {
 			((unsigned short *) (bh->b_data))[block&511]=i;
 			bh->b_dirt=1;
 		}
+    }
 	brelse(bh);
 	return i;
 }
@@ -191,6 +224,7 @@ repeat:
 	return;
 }
 
+extern void * memset(void * s,char c,int count);
 struct m_inode * get_empty_inode(void)
 {
 	struct m_inode * inode;
@@ -304,10 +338,18 @@ static void read_inode(struct m_inode * inode)
 		(inode->i_num-1)/INODES_PER_BLOCK;
 	if (!(bh=bread(inode->i_dev,block)))
 		panic("unable to read i-node block");
-	*(struct d_inode *)inode =
-		((struct d_inode *)bh->b_data)
-			[(inode->i_num-1)%INODES_PER_BLOCK];
-	brelse(bh);
+//	*(struct d_inode *)inode =
+//		((struct d_inode *)bh->b_data)
+//			[(inode->i_num-1)%INODES_PER_BLOCK];
+
+    unsigned char *p1, *p2;
+    p1 = (unsigned char*)inode;
+    p2 = (unsigned char*)&(((struct d_inode *)bh->b_data)[(inode->i_num-1)%INODES_PER_BLOCK]);
+    int i;
+    for(i = 0; i < sizeof(struct d_inode); i++)
+        *p1++ = *p2++;
+    
+    brelse(bh);
 	unlock_inode(inode);
 }
 

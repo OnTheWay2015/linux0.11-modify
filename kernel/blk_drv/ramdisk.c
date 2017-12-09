@@ -4,7 +4,7 @@
  *  Written by Theodore Ts'o, 12/2/91
  */
 
-#include <string.h>
+//#include <string.h>
 
 #include <linux/config.h>
 #include <linux/sched.h>

@@ -33,10 +33,11 @@ static struct buffer_head * free_list;
 static struct task_struct * buffer_wait = NULL;
 int NR_BUFFERS = 0;
 
-static inline void wait_on_buffer(struct buffer_head * bh)
+void invalidate_buffers(int dev);
+static void wait_on_buffer(struct buffer_head * bh)
 {
 	cli();
-	while (bh->b_lock)
+	while (bh->b_lock) //是否占用? 
 		sleep_on(&bh->b_wait);
 	sti();
 }
@@ -110,6 +111,9 @@ void inline invalidate_buffers(int dev)
  * and that mount/open needn't know that floppies/whatever are
  * special.
  */
+
+extern void put_super(int dev);
+extern void invalidate_inodes(int dev);
 void check_disk_change(int dev)
 {
 	int i;
@@ -128,7 +132,7 @@ void check_disk_change(int dev)
 #define _hashfn(dev,block) (((unsigned)(dev^block))%NR_HASH)
 #define hash(dev,block) hash_table[_hashfn(dev,block)]
 
-static inline void remove_from_queues(struct buffer_head * bh)
+static void remove_from_queues(struct buffer_head * bh)
 {
 /* remove from hash-queue */
 	if (bh->b_next)
@@ -146,7 +150,7 @@ static inline void remove_from_queues(struct buffer_head * bh)
 		free_list = bh->b_next_free;
 }
 
-static inline void insert_into_queues(struct buffer_head * bh)
+static void insert_into_queues(struct buffer_head * bh)
 {
 /* put at end of free list */
 	bh->b_next_free = free_list;
@@ -208,7 +212,8 @@ struct buffer_head * getblk(int dev,int block)
 	struct buffer_head * tmp, * bh;
 
 repeat:
-	if (bh = get_hash_table(dev,block))
+    bh = get_hash_table(dev,block);
+    if (bh)
 		return bh;
 	tmp = free_list;
 	do {
@@ -264,18 +269,39 @@ void brelse(struct buffer_head * buf)
  * bread() reads a specified block and returns the buffer that contains
  * it. It returns NULL if the block was unreadable.
  */
+
+//从设备上读取指定的数据块，并返回含有数据的缓冲区，如果指定的块不存在，则返回 NULL。
+// @dev 指定设备号
+// @block 指定的数据块号  (数据块号是从 0 开始)
 struct buffer_head * bread(int dev,int block)
 {
 	struct buffer_head * bh;
 
+    //printk("666 bread dev[%u] \n", dev);
+    //在高速缓冲区中申请一块缓冲块
 	if (!(bh=getblk(dev,block)))
-		panic("bread: getblk returned NULL\n");
+    {
+        panic("bread: getblk returned NULL\n");
+    }
+
+    //缓冲块数据是否可用, 如果是有效的(已更新的),可以直接使用
 	if (bh->b_uptodate)
+    {
 		return bh;
+    }
+
+    //调用底层设备读写，产生读设备请求。
 	ll_rw_block(READ,bh);
-	wait_on_buffer(bh);
+    
+    //等待缓冲数据读入，并等待缓冲区解锁
+    wait_on_buffer(bh);
+
+    //睡眠醒来，查看该缓冲区是否更新好.
 	if (bh->b_uptodate)
-		return bh;
+    {
+		return bh;//返回缓冲区头指针
+    }
+    //更新失败
 	brelse(bh);
 	return NULL;
 }
@@ -285,7 +311,7 @@ __asm__("cld\n\t" \
 	"rep\n\t" \
 	"movsl\n\t" \
 	::"c" (BLOCK_SIZE/4),"S" (from),"D" (to) \
-	:"cx","di","si")
+	)
 
 /*
  * bread_page reads four buffers into memory at the desired address. It's
@@ -297,14 +323,17 @@ void bread_page(unsigned long address,int dev,int b[4])
 {
 	struct buffer_head * bh[4];
 	int i;
-
 	for (i=0 ; i<4 ; i++)
-		if (b[i]) {
-			if (bh[i] = getblk(dev,b[i]))
+        if (b[i]) {
+            bh[i] = getblk(dev,b[i]);
+            if (bh[i])
+            {
 				if (!bh[i]->b_uptodate)
 					ll_rw_block(READ,bh[i]);
-		} else
+            }
+		} else {
 			bh[i] = NULL;
+        }
 	for (i=0 ; i<4 ; i++,address += BLOCK_SIZE)
 		if (bh[i]) {
 			wait_on_buffer(bh[i]);

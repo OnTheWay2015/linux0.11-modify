@@ -6,25 +6,27 @@
 # unless it's something special (ie not a .c file).
 #
 
-AR	=gar
-AS	=gas
-LD	=gld
-LDFLAGS	=-s -x
+AR	=ar
+AS	=as --32
+LD	=ld -m elf_i386 
+#LDFLAGS	=-s -x
+LDFLAGS	= -x
 CC	=gcc
-CFLAGS	=-Wall -O -fstrength-reduce -fomit-frame-pointer -fcombine-regs \
-	-finline-functions -mstring-insns -nostdinc -I../../include
+CFLAGS	= -m32 -Wall -O  -fstrength-reduce -fomit-frame-pointer  \
+	-finline-functions -nostdinc  -fno-builtin -I../../include -I.
 CPP	=gcc -E -nostdinc -I../../include
 
 .c.s:
 	$(CC) $(CFLAGS) \
 	-S -o $*.s $<
 .s.o:
-	$(AS) -c -o $*.o $<
+	#$(AS) -c -o $*.o $<
+	$(AS) -o $*.o $<
 .c.o:
 	$(CC) $(CFLAGS) \
 	-c -o $*.o $<
 
-OBJS  = ll_rw_blk.o floppy.o hd.o ramdisk.o
+OBJS  = blk.o ll_rw_blk.o floppy.o hd.o ramdisk.o
 
 blk_drv.a: $(OBJS)
 	$(AR) rcs blk_drv.a $(OBJS)
@@ -41,6 +43,8 @@ dep:
 	cp tmp_make Makefile
 
 ### Dependencies:
+blk.s blk.o : blk.c blk.h 
+
 floppy.s floppy.o : floppy.c ../../include/linux/sched.h ../../include/linux/head.h \
   ../../include/linux/fs.h ../../include/sys/types.h ../../include/linux/mm.h \
   ../../include/signal.h ../../include/linux/kernel.h \
